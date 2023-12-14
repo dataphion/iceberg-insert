@@ -75,13 +75,12 @@ public class App {
 
         TableIdentifier tableIdentifier = TableIdentifier.of(namespace, tableName);
         org.apache.iceberg.Table table = catalog.loadTable(tableIdentifier);
-        StructType schema1 = table.schema().asStruct();
         Schema schema = table.schema();
         System.out.println("schema" + schema);
 
         
 
-        List<GenericRecord> records = readFromAzureBlob("your_container_name", "your_account_name", "your_component_id", schema1);
+        List<GenericRecord> records = readFromAzureBlob("your_container_name", "your_account_name", "your_component_id", schema);
 
         for (GenericRecord record : records) {
             String filepath = table.location() + "/" + UUID.randomUUID().toString();
@@ -110,7 +109,7 @@ public class App {
            
     }
 
-    private static List<GenericRecord> readFromAzureBlob(String containerName, String accountName, String componentID, StructType schema) {
+    private static List<GenericRecord> readFromAzureBlob(String containerName, String accountName, String componentID, Schema schema) {
         List<GenericRecord> records = new ArrayList<>();
         String blobStoragePath = "wasbs://" + containerName + "@" + accountName +
                 ".blob.core.windows.net/events/" + componentID + "/*/*/*";
@@ -139,7 +138,7 @@ public class App {
         return records;
     }
 
-    private static GenericRecord parseJsonToRecord(String jsonLine, StructType schema) {
+    private static GenericRecord parseJsonToRecord(String jsonLine, Schema schema) {
         try {
             JsonNode jsonNode = objectMapper.readTree(jsonLine);
 
@@ -147,7 +146,7 @@ public class App {
             GenericRecord record = GenericRecord.create(schema);
 
             // Populate the record fields based on the JSON data
-            for (Types.NestedField field : schema.fields()) {
+            for (Types.NestedField field : schema.asStruct().fields()) {
                 String fieldName = field.name();
 
                 // Assuming that the JSON field names match the Iceberg schema field names
