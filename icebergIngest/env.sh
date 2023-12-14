@@ -1,16 +1,16 @@
 
 # Azure Storage
-export AZURE_ACCOUNT_KEY="97zBzXhQsGHrjnPQGjWzIIHT7IeL7mWUhkGgpUFnW+HnfuTLM9IlbO3ml5GtY7zYDlIB+fFp7nF4+AStSA3jsA=="
-export AZURE_ACCOUNT_NAME="sparkhermes"
-export AZURE_CONTAINER_NAME="hermes"
+export AZURE_ACCOUNT_KEY=""
+export AZURE_ACCOUNT_NAME=""
+export AZURE_CONTAINER_NAME=""
 
 # JDBC Connection
-export JDBC_URL="jdbc:postgresql://172.172.156.46:8088/postgres"
-export JDBC_USER="postgres"
-export JDBC_PASSWORD="postgres"
+export JDBC_URL=""
+export JDBC_USER=""
+export JDBC_PASSWORD=""
 
 # Iceberg Catalog
-export ICEBERG_CATALOG_NAME="hermesdemo"
-export ICEBERG_NAMESPACE="hns1"
-export ICEBERG_TABLE_NAME="aggregate"
+export ICEBERG_CATALOG_NAME=""
+export ICEBERG_NAMESPACE=""
+export ICEBERG_TABLE_NAME=""
 export COMPONENT_ID=""
