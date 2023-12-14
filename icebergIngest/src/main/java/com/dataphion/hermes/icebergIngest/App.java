@@ -62,13 +62,10 @@ public class App {
         String namespace = System.getenv("ICEBERG_NAMESPACE");
         String tableName = System.getenv("ICEBERG_TABLE_NAME");
         String componentID = System.getenv("COMPONENT_ID");
-        String fsDefaultName = "wasbs://" + azureContainerName + "@" + azureAccountName + ".blob.core.windows.net";
 
         Configuration hadoopConf = new Configuration();
         hadoopConf.set("fs.azure.account.key." + azureAccountName + ".dfs.core.windows.net", azureAccountKey);
-        hadoopConf.set("fs.defaultFS", fsDefaultName);
-        hadoopConf.set("fs.azure", "org.apache.hadoop.fs.azure.NativeAzureFileSystem");
-        hadoopConf.set("fs.azure.account.key." + azureAccountName + ".blob.core.windows.net", azureAccountKey);
+        
 
         Map<String, String> properties = new HashMap<>();
         properties.put(CatalogProperties.WAREHOUSE_LOCATION, "abfss://" + azureContainerName + "@" + azureAccountName + ".dfs.core.windows.net/warehouse/hermesdemo");
@@ -86,7 +83,6 @@ public class App {
         TableIdentifier tableIdentifier = TableIdentifier.of(namespace, tableName);
         org.apache.iceberg.Table table = catalog.loadTable(tableIdentifier);
         Schema schema = table.schema();
-        System.out.println("schema" + schema);
 
         List<GenericRecord> records = readFromAzureBlob(azureContainerName, azureAccountName, componentID, schema, azureAccountKey);
 
@@ -101,13 +97,13 @@ public class App {
 			        .withSpec(PartitionSpec.unpartitioned())
 			        .build();
 			for (GenericRecord record : records) {
-	            dataWriter.write(record);
-				DataFile dataFile = dataWriter.toDataFile();
-				table.newAppend().appendFile(dataFile).commit();
-
-				System.out.println("Record written to Iceberg table: " + record);      
+	            dataWriter.write(record);      
 	        }
-	        dataWriter.close();
+            dataWriter.close();
+            DataFile dataFile = dataWriter.toDataFile();
+			table.newAppend().appendFile(dataFile).commit();
+            System.out.println("Record written to Iceberg table");
+	        
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
