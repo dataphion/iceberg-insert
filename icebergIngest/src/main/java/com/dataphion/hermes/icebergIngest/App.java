@@ -88,35 +88,30 @@ public class App {
         Schema schema = table.schema();
         System.out.println("schema" + schema);
 
-        
-
         List<GenericRecord> records = readFromAzureBlob(azureContainerName, azureAccountName, componentID, schema, azureAccountKey);
 
-        for (GenericRecord record : records) {
-            String filepath = table.location() + "/" + UUID.randomUUID().toString();
-            OutputFile file = table.io().newOutputFile(filepath);
+        String filepath = table.location() + "/" + UUID.randomUUID().toString();
+        OutputFile file = table.io().newOutputFile(filepath);
+        DataWriter<GenericRecord> dataWriter;
+		try {
+			dataWriter = Parquet.writeData(file)
+			        .schema(schema)
+			        .createWriterFunc(GenericParquetWriter::buildWriter)
+			        .overwrite()
+			        .withSpec(PartitionSpec.unpartitioned())
+			        .build();
+			for (GenericRecord record : records) {
+	            dataWriter.write(record);
+				DataFile dataFile = dataWriter.toDataFile();
+				table.newAppend().appendFile(dataFile).commit();
 
-            try {
-                DataWriter<GenericRecord> dataWriter = Parquet.writeData(file)
-                        .schema(schema)
-                        .createWriterFunc(GenericParquetWriter::buildWriter)
-                        .overwrite()
-                        .withSpec(PartitionSpec.unpartitioned())
-                        .build();
-
-                dataWriter.write(record);
-                dataWriter.close();
-
-                DataFile dataFile = dataWriter.toDataFile();
-                table.newAppend().appendFile(dataFile).commit();
-
-                System.out.println("Record written to Iceberg table: " + record);
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            }      
-        }
-           
+				System.out.println("Record written to Iceberg table: " + record);      
+	        }
+	        dataWriter.close();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}   
     }
 
     public static List<GenericRecord> readFromAzureBlob(String containerName, String accountName, String componentID, Schema schema, String accountKey ) {
