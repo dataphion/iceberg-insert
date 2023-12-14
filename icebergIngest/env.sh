@@ -12,5 +12,5 @@ export JDBC_PASSWORD="postgres"
 # Iceberg Catalog
 export ICEBERG_CATALOG_NAME="hermesdemo"
 export ICEBERG_NAMESPACE="hns1"
-export ICEBERG_TABLE_NAME="aggregate"
-export COMPONENT_ID=""
+export ICEBERG_TABLE_NAME="events"
+export COMPONENT_ID="21e45cc2-53da-4909-86a5-659b0b53217f"

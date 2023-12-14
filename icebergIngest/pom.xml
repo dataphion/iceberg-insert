@@ -143,6 +143,19 @@
 			<type>pom</type>
 		</dependency>
 
+		<dependency>
+			<groupId>com.azure</groupId>
+			<artifactId>azure-storage-blob</artifactId>
+			<version>12.25.1</version> <!-- Replace with the latest version available -->
+		</dependency>
+
+		<!-- Avro dependency (if not already included) -->
+		<dependency>
+			<groupId>org.apache.avro</groupId>
+			<artifactId>avro</artifactId>
+			<version>1.11.3</version> <!-- Replace with the version you need -->
+		</dependency>
+
         <!-- <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
