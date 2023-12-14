@@ -153,7 +153,7 @@ public class App {
                 if (jsonNode.has(fieldName)) {
                     // Set the value directly without explicit conversion
                     Object fieldValue = extractJsonValue(jsonNode.get(fieldName), field.type());
-                    record.set(fieldName, fieldValue);
+                    record.setField(fieldName, fieldValue);
                 }
             }
 
@@ -202,7 +202,7 @@ public class App {
             String fieldName = field.name();
             if (jsonNode.has(fieldName)) {
                 Object fieldValue = extractJsonValue(jsonNode.get(fieldName), field.type());
-                structRecord.set(fieldName, fieldValue);
+                structRecord.setField(fieldName, fieldValue);
             }
         }
         return structRecord;
