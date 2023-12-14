@@ -1,6 +1,9 @@
 package com.dataphion.hermes.icebergIngest;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -10,6 +13,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+
+import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobClient;
+import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.common.StorageSharedKeyCredential;
+import com.azure.storage.blob.models.BlobItem;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -80,7 +90,7 @@ public class App {
 
         
 
-        List<GenericRecord> records = readFromAzureBlob("your_container_name", "your_account_name", "your_component_id", schema);
+        List<GenericRecord> records = readFromAzureBlob(azureContainerName, azureAccountName, componentID, schema, azureAccountKey);
 
         for (GenericRecord record : records) {
             String filepath = table.location() + "/" + UUID.randomUUID().toString();
@@ -109,29 +119,37 @@ public class App {
            
     }
 
-    private static List<GenericRecord> readFromAzureBlob(String containerName, String accountName, String componentID, Schema schema) {
+    public static List<GenericRecord> readFromAzureBlob(String containerName, String accountName, String componentID, Schema schema, String accountKey ) {
         List<GenericRecord> records = new ArrayList<>();
-        String blobStoragePath = "wasbs://" + containerName + "@" + accountName +
-                ".blob.core.windows.net/events/" + componentID + "/*/*/*";
-
+        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
         try {
-            Files.walk(Paths.get(blobStoragePath))
-                    .filter(Files::isRegularFile)
-                    .forEach(filePath -> {
-                        try {
-                            List<String> jsonLines = Files.readAllLines(filePath, StandardCharsets.UTF_8);
-                            for (String jsonLine : jsonLines) {
-                                GenericRecord record = parseJsonToRecord(jsonLine, schema);
-                                if (record != null) {
-                                    records.add(record);
-                                }
-                            }
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    });
+            BlobServiceClientBuilder builder = new BlobServiceClientBuilder()
+                    .endpoint("https://" + accountName + ".blob.core.windows.net")
+                    .credential(credential);
 
-        } catch (IOException e) {
+            BlobContainerClient containerClient = builder.buildClient().getBlobContainerClient(containerName);
+
+            for (BlobItem blobItem : containerClient.listBlobs()) {
+                String blobName = blobItem.getName();
+
+                // Apply your pattern matching logic here
+                if (blobName.startsWith("events/" + componentID + "/")) {
+                    BlobClient blobClient = containerClient.getBlobClient(blobName);
+
+                    try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+                        blobClient.download(outputStream);
+                        String jsonContent = new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
+                        GenericRecord record = parseJsonToRecord(jsonContent, schema);
+                        if (record != null) {
+                            records.add(record);
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
