@@ -48,6 +48,7 @@ import org.apache.iceberg.types.Type.PrimitiveType;
 import org.apache.iceberg.types.Type.NestedType;
 import org.apache.iceberg.types.Types.StructType;
 import java.math.BigDecimal;
+import java.time.format.DateTimeFormatter;
 
 
 public class App {
@@ -169,6 +170,8 @@ public class App {
             for (Types.NestedField field : schema.asStruct().fields()) {
                 String fieldName = field.name();
 
+
+
                 // Assuming that the JSON field names match the Iceberg schema field names
                 if (jsonNode.has(fieldName)) {
                     // Set the value directly without explicit conversion
@@ -201,12 +204,16 @@ public class App {
             case DECIMAL:
                 return new BigDecimal(jsonNode.asText());
             case DATE:
-                return java.sql.Date.valueOf(jsonNode.asText());
+                return java.time.LocalDate.parse(jsonNode.asText(), DateTimeFormatter.ISO_LOCAL_DATE);
             case TIME:
-                return java.sql.Time.valueOf(jsonNode.asText());
+                return java.time.LocalTime.parse(jsonNode.asText(), DateTimeFormatter.ISO_LOCAL_TIME);
             case TIMESTAMP:
-                return java.sql.Timestamp.valueOf(jsonNode.asText());
+                return java.time.LocalDateTime.parse(jsonNode.asText(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             case STRUCT:
+                // Object resp = extractStruct(jsonNode, (StructType) type);
+                // if(resp == null || resp.getName() == null){
+                //     return jsonNode.asText();
+                // }
                 return extractStruct(jsonNode, (StructType) type);
             case LIST:
                 return extractList(jsonNode, (Types.ListType) type);
