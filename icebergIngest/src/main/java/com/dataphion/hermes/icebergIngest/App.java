@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Arrays;
+
 
 
 import com.azure.storage.blob.BlobServiceClientBuilder;
@@ -36,6 +38,9 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import java.util.LinkedHashMap;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.MappingJsonFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.iceberg.data.Record;
@@ -62,6 +67,7 @@ public class App {
         String namespace = System.getenv("ICEBERG_NAMESPACE");
         String tableName = System.getenv("ICEBERG_TABLE_NAME");
         String componentID = System.getenv("COMPONENT_ID");
+        
 
         Configuration hadoopConf = new Configuration();
         hadoopConf.set("fs.azure.account.key." + azureAccountName + ".dfs.core.windows.net", azureAccountKey);
@@ -119,31 +125,36 @@ public class App {
                     .credential(credential);
 
             BlobContainerClient containerClient = builder.buildClient().getBlobContainerClient(containerName);
-
+            
             for (BlobItem blobItem : containerClient.listBlobs()) {
                 String blobName = blobItem.getName();
-
                 // Apply your pattern matching logic here
                 if (blobName.startsWith("events/" + componentID + "/")) {
                     BlobClient blobClient = containerClient.getBlobClient(blobName);
-
+                    
                     try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
                         blobClient.download(outputStream);
+                        //System.out.println("============== matched============" + blobName);
                         String jsonContent = new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
-                        GenericRecord record = parseJsonToRecord(jsonContent, schema);
-                        if (record != null) {
-                            records.add(record);
+                        List<String> jsonRecords = Arrays.asList(jsonContent.split("\n")); // Adjust delimiter as needed
+
+                        for (String record : jsonRecords) {
+                            GenericRecord genericRecord = parseJsonToRecord(record, schema);
+                            if (genericRecord != null) {
+                                records.add(genericRecord);
+                            }
                         }
+                    
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
-                }
+                } 
             }
-
+        
         } catch (Exception e) {
             e.printStackTrace();
         }
-
+        System.out.println("Number of records: " + records.size());
         return records;
     }
 
