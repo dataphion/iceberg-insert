@@ -1,12 +1,8 @@
 package com.dataphion.hermes.icebergIngest;
 
 import java.io.IOException;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.util.Base64;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
@@ -14,12 +10,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.Arrays;
 
-
-
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobClient;
-import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import com.azure.storage.blob.models.BlobItem;
 
@@ -32,24 +25,21 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
-import java.util.LinkedHashMap;
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.MappingJsonFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.types.Type.PrimitiveType;
-import org.apache.iceberg.types.Type.NestedType;
 import org.apache.iceberg.types.Types.StructType;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-
 
 public class App {
 
@@ -68,14 +58,13 @@ public class App {
         String namespace = System.getenv("ICEBERG_NAMESPACE");
         String tableName = System.getenv("ICEBERG_TABLE_NAME");
         String componentID = System.getenv("COMPONENT_ID");
-        
 
         Configuration hadoopConf = new Configuration();
         hadoopConf.set("fs.azure.account.key." + azureAccountName + ".dfs.core.windows.net", azureAccountKey);
-        
 
         Map<String, String> properties = new HashMap<>();
-        properties.put(CatalogProperties.WAREHOUSE_LOCATION, "abfss://" + azureContainerName + "@" + azureAccountName + ".dfs.core.windows.net/warehouse/hermesdemo");
+        properties.put(CatalogProperties.WAREHOUSE_LOCATION, "abfss://" + azureContainerName + "@" + azureAccountName
+                + ".dfs.core.windows.net/warehouse/hermesdemo");
         properties.put(CatalogProperties.CATALOG_IMPL, "org.apache.iceberg.jdbc.JdbcCatalog");
         properties.put("uri", jdbcUrl);
         properties.put("jdbc.user", jdbcUser);
@@ -86,76 +75,98 @@ public class App {
         conf.addResource(hadoopConf);
         catalog.setConf(conf);
         catalog.initialize(catalogName, properties);
-
         TableIdentifier tableIdentifier = TableIdentifier.of(namespace, tableName);
         org.apache.iceberg.Table table = catalog.loadTable(tableIdentifier);
+        String location = table.location();
+        System.out.println("Table location -> " + location);
+        LocationProvider lp = table.locationProvider();
+        lp.newDataLocation(location + "/data");
+        table.updateLocation().setLocation(location + "/data");
+
+        PartitionSpec ps = table.spec();
+        System.out.println(ps.fields());
         Schema schema = table.schema();
+        // Get ABFS Connection
+        BlobContainerClient containerClient = getABFSConnection(azureContainerName, azureAccountName, componentID,
+                azureAccountKey);
+        List<String> newFiles = getFilesForComponent(containerClient, componentID);
+        System.out.println("Number of files: " + newFiles.size());
 
-        List<GenericRecord> records = readFromAzureBlob(azureContainerName, azureAccountName, componentID, schema, azureAccountKey);
-
-        String filepath = table.location() + "/" + UUID.randomUUID().toString();
-        OutputFile file = table.io().newOutputFile(filepath);
-        DataWriter<GenericRecord> dataWriter;
-		try {
-			dataWriter = Parquet.writeData(file)
-			        .schema(schema)
-			        .createWriterFunc(GenericParquetWriter::buildWriter)
-			        .overwrite()
-			        .withSpec(PartitionSpec.unpartitioned())
-			        .build();
-			for (GenericRecord record : records) {
-	            dataWriter.write(record);      
-	        }
-            dataWriter.close();
-            DataFile dataFile = dataWriter.toDataFile();
-			table.newAppend().appendFile(dataFile).commit();
-            System.out.println("Record written to Iceberg table");
-	        
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}   
-    }
-
-    public static List<GenericRecord> readFromAzureBlob(String containerName, String accountName, String componentID, Schema schema, String accountKey ) {
-        List<GenericRecord> records = new ArrayList<>();
-        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
         try {
-            BlobServiceClientBuilder builder = new BlobServiceClientBuilder()
-                    .endpoint("https://" + accountName + ".blob.core.windows.net")
-                    .credential(credential);
-
-            BlobContainerClient containerClient = builder.buildClient().getBlobContainerClient(containerName);
-            
-            for (BlobItem blobItem : containerClient.listBlobs()) {
-                String blobName = blobItem.getName();
-                // Apply your pattern matching logic here
-                if (blobName.startsWith("events/" + componentID + "/")) {
-                    BlobClient blobClient = containerClient.getBlobClient(blobName);
-                    
-                    try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
-                        blobClient.download(outputStream);
-                        //System.out.println("============== matched============" + blobName);
-                        String jsonContent = new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
-                        List<String> jsonRecords = Arrays.asList(jsonContent.split("\n")); // Adjust delimiter as needed
-
-                        for (String record : jsonRecords) {
-                            GenericRecord genericRecord = parseJsonToRecord(record, schema);
-                            if (genericRecord != null) {
-                                records.add(genericRecord);
-                            }
-                        }
-                    
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                } 
+            for (String fileName : newFiles) {
+                List<GenericRecord> records = readFromAzureBlob(containerClient, fileName, schema, true);
+                String filepath = table.location() + "/" + UUID.randomUUID().toString();
+                OutputFile file = table.io().newOutputFile(filepath);
+                DataWriter<GenericRecord> dataWriter;
+                dataWriter = Parquet.writeData(file)
+                        .schema(schema)
+                        .createWriterFunc(GenericParquetWriter::buildWriter)
+                        .overwrite()
+                        .withSpec(PartitionSpec.unpartitioned())
+                        .build();
+                for (GenericRecord record : records) {
+                    dataWriter.write(record);
+                }
+                dataWriter.close();
+                DataFile dataFile = dataWriter.toDataFile();
+                table.newAppend().appendFile(dataFile).commit();
+                System.out.println("Record written to Iceberg table");
             }
-        
-        } catch (Exception e) {
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
             e.printStackTrace();
         }
-        System.out.println("Number of records: " + records.size());
+        catalog.close();
+    }
+
+    public static List<String> getFilesForComponent(BlobContainerClient containerClient, String componentID) {
+
+        List<String> files = new ArrayList<String>();
+        for (BlobItem blobItem : containerClient.listBlobs()) {
+            String blobName = blobItem.getName();
+            // Apply your pattern matching logic here
+            if (blobName.startsWith("events/" + componentID + "/")) {
+                files.add(blobName);
+            }
+        }
+        return files;
+
+    }
+
+    public static BlobContainerClient getABFSConnection(String containerName, String accountName, String componentID,
+            String accountKey) {
+        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
+        BlobServiceClientBuilder builder = new BlobServiceClientBuilder()
+                .endpoint("https://" + accountName + ".blob.core.windows.net")
+                .credential(credential);
+
+        BlobContainerClient containerClient = builder.buildClient().getBlobContainerClient(containerName);
+        return containerClient;
+    }
+
+    public static List<GenericRecord> readFromAzureBlob(BlobContainerClient containerClient, String fileName,
+            Schema schema,
+            boolean removeFile) {
+        List<GenericRecord> records = new ArrayList<>();
+        BlobClient blobClient = containerClient.getBlobClient(fileName);
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            blobClient.downloadStream(outputStream);
+            String jsonContent = new String(outputStream.toByteArray(), StandardCharsets.UTF_8);
+            List<String> jsonRecords = Arrays.asList(jsonContent.split("\n")); // Adjust delimiter as needed
+
+            for (String record : jsonRecords) {
+                GenericRecord genericRecord = parseJsonToRecord(record, schema);
+                if (genericRecord != null) {
+                    records.add(genericRecord);
+                }
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if (removeFile) {
+            blobClient.delete();
+        }
         return records;
     }
 
@@ -170,12 +181,14 @@ public class App {
             for (Types.NestedField field : schema.asStruct().fields()) {
                 String fieldName = field.name();
 
-
-
                 // Assuming that the JSON field names match the Iceberg schema field names
                 if (jsonNode.has(fieldName)) {
                     // Set the value directly without explicit conversion
                     Object fieldValue = extractJsonValue(jsonNode.get(fieldName), field.type());
+                    if (fieldName.equals("event_date")) {
+                        System.out.println(fieldName);
+                        System.out.println(fieldValue);
+                    }
                     record.setField(fieldName, fieldValue);
                 }
             }
@@ -204,16 +217,13 @@ public class App {
             case DECIMAL:
                 return new BigDecimal(jsonNode.asText());
             case DATE:
-                return java.time.LocalDate.parse(jsonNode.asText(), DateTimeFormatter.ISO_LOCAL_DATE);
+                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+                return LocalDate.parse(jsonNode.asText(), formatter);
             case TIME:
-                return java.time.LocalTime.parse(jsonNode.asText(), DateTimeFormatter.ISO_LOCAL_TIME);
+                return LocalTime.parse(jsonNode.asText());
             case TIMESTAMP:
-                return java.time.LocalDateTime.parse(jsonNode.asText(), DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                return jsonNode.asDouble();
             case STRUCT:
-                // Object resp = extractStruct(jsonNode, (StructType) type);
-                // if(resp == null || resp.getName() == null){
-                //     return jsonNode.asText();
-                // }
                 return extractStruct(jsonNode, (StructType) type);
             case LIST:
                 return extractList(jsonNode, (Types.ListType) type);
@@ -247,5 +257,4 @@ public class App {
         return list;
     }
 
-    
 }
