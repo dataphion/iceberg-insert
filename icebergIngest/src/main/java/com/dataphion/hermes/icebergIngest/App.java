@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Arrays;
@@ -227,6 +228,8 @@ public class App {
                 return extractStruct(jsonNode, (StructType) type);
             case LIST:
                 return extractList(jsonNode, (Types.ListType) type);
+            case MAP:
+                return extractMap(jsonNode, (Types.MapType) type);
             // Add cases for other types as needed
             default:
                 throw new IllegalArgumentException("Unsupported type: " + type);
@@ -255,6 +258,27 @@ public class App {
         });
 
         return list;
+    }
+    
+    private static Map<Object, Object> extractMap(JsonNode jsonNode, Types.MapType mapType) {
+        Map<Object, Object> map = new HashMap<>();
+        Type keyType = mapType.keyType();
+        Type valueType = mapType.valueType();
+
+        Iterator<Map.Entry<String, JsonNode>> fields = jsonNode.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = fields.next();
+
+            // keys in JSON maps are always strings
+            Object key = entry.getKey();
+            if (keyType.typeId() != Type.TypeID.STRING) {
+                throw new IllegalArgumentException("Only string keys supported in JSON maps");
+            }
+
+            Object value = extractJsonValue(entry.getValue(), valueType);
+            map.put(key, value);
+        }
+        return map;
     }
 
 }
