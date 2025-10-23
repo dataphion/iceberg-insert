@@ -20,6 +20,8 @@ import com.azure.storage.blob.models.BlobItem;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.PartitionData;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -78,12 +80,8 @@ public class App {
         catalog.initialize(catalogName, properties);
         TableIdentifier tableIdentifier = TableIdentifier.of(namespace, tableName);
         org.apache.iceberg.Table table = catalog.loadTable(tableIdentifier);
-        String location = table.location();
-        System.out.println("Table location -> " + location);
         LocationProvider lp = table.locationProvider();
-        lp.newDataLocation(location + "/data");
-        table.updateLocation().setLocation(location + "/data");
-
+        System.out.println("Table location -> " + table.location());
         PartitionSpec ps = table.spec();
         System.out.println(ps.fields());
         Schema schema = table.schema();
@@ -96,21 +94,60 @@ public class App {
         try {
             for (String fileName : newFiles) {
                 List<GenericRecord> records = readFromAzureBlob(containerClient, fileName, schema, true);
-                String filepath = table.location() + "/" + UUID.randomUUID().toString();
-                OutputFile file = table.io().newOutputFile(filepath);
-                DataWriter<GenericRecord> dataWriter;
-                dataWriter = Parquet.writeData(file)
-                        .schema(schema)
-                        .createWriterFunc(GenericParquetWriter::buildWriter)
-                        .overwrite()
-                        .withSpec(PartitionSpec.unpartitioned())
-                        .build();
-                for (GenericRecord record : records) {
-                    dataWriter.write(record);
+                if (records.isEmpty()) {
+                    continue;
                 }
-                dataWriter.close();
-                DataFile dataFile = dataWriter.toDataFile();
-                table.newAppend().appendFile(dataFile).commit();
+             // Group records by partition
+                Map<PartitionData, List<GenericRecord>> partitionedRecords = new HashMap<>();
+                for (GenericRecord record : records) {
+                    PartitionData pd = Utile.buildPartitionData(ps, record);
+                    partitionedRecords.computeIfAbsent(pd, k -> new ArrayList<>()).add(record);
+                }
+                for (Map.Entry<PartitionData, List<GenericRecord>> entry : partitionedRecords.entrySet()) {
+                    PartitionData partitionData = entry.getKey();
+                    List<GenericRecord> recs = entry.getValue();
+//                    System.out.println("=====================================================================================================");
+//                    System.out.println("partitionData: "+partitionData);
+//                    System.out.println("recs: "+ recs);
+                    String partitionPath = "";
+                    if (partitionData != null && ps.isPartitioned()) {
+                        StringBuilder sb = new StringBuilder();
+                        List<PartitionField> fields = ps.fields();
+                        for (int i = 0; i < fields.size(); i++) {
+                            PartitionField f = fields.get(i);
+                            Object val = partitionData.get(i);
+                            String transform = f.transform().toString();
+                            if ("day".equals(transform)) {
+                                val = LocalDate.ofEpochDay((Integer) val);
+                            }else if ("month".equals(transform)) {
+                                int monthVal = (Integer) val;
+                                int year = monthVal / 12;
+                                int month = monthVal % 12 + 1;
+                                val = String.format("%04d-%02d", year, month);
+                            }
+                            sb.append(f.name()).append("=").append(val).append("/");
+                        }
+                        partitionPath = sb.toString();
+                    }
+                    String filepath = lp.newDataLocation(partitionPath + UUID.randomUUID() + ".parquet");
+                    OutputFile file = table.io().newOutputFile(filepath);
+                    System.out.println("filepath: "+filepath);
+	                DataWriter<GenericRecord> dataWriter;
+	                dataWriter = Parquet.writeData(file)
+	                		.schema(schema)
+	                        .createWriterFunc(GenericParquetWriter::buildWriter)
+	                        .withSpec(ps)
+	                        .withPartition(partitionData)
+	                        .build();
+
+	                for (GenericRecord rec : recs) {
+                        dataWriter.write(rec);
+                    }
+	                dataWriter.close();
+	                DataFile dataFile = dataWriter.toDataFile();
+	                table.newAppend().appendFile(dataFile).commit();
+	                table.refresh();
+                }
                 System.out.println("Record written to Iceberg table");
             }
         } catch (IOException e) {
